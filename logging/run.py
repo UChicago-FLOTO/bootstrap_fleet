@@ -4,6 +4,7 @@ from pydbus import SystemBus
 import logging
 import os
 from collections.abc import Mapping
+import json
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig()
@@ -59,18 +60,35 @@ def main():
 
     # Main update loop
     while True:
-        supervisor_data = _query_balena_supervisor(session=sess)
-        ip_address = supervisor_data.get("ip_address")
-        hostname = os.environ.get("HOSTNAME")
+        sd = _query_balena_supervisor(session=sess)
 
         # Clear screen
         # stdscr.clear()
         stdscr.erase()
 
+        device_uuid=os.environ.get("BALENA_DEVICE_UUID")
+        hostname = os.environ.get("HOSTNAME")
+        device_name_at_init=os.environ.get("RESIN_DEVICE_NAME_AT_INIT")
+        stdscr.addstr(f"Device UUID: {device_uuid} has Hostname: {hostname} and device name: {device_name_at_init}\n")
+
         # update buffer
-        stdscr.addstr(f"Local IP address: {ip_address}")
-        stdscr.addstr("\n")
-        stdscr.addstr(f"Hostname: {hostname}")
+        ip_address = sd.get("ip_address")
+        stdscr.addstr(f"Local IP address: {ip_address}]\n")
+
+        mac_address = sd.get("mac_address")
+        stdscr.addstr(f"Local MAC address: {mac_address}]\n")
+
+        d_status = sd.get("status")
+        stdscr.addstr(f"Device Status: {d_status}\n")
+
+
+        # for k,v in os.environ.items():
+        #     string = f"{k}:{v}\n"
+        #     if not string.startswith("BALENA_"):
+        #         stdscr.addstr(f"Env Vars: {string}")
+
+
+
 
         # refresh screen to display buffer
         stdscr.refresh()
