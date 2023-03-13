@@ -32,14 +32,52 @@ SYSTEMD_API_MODE="replace"
 BALENA_SUPERVISOR_ADDRESS=os.environ.get("BALENA_SUPERVISOR_ADDRESS")
 BALENA_SUPERVISOR_API_KEY=os.environ.get("BALENA_SUPERVISOR_API_KEY")
 
-def _query_balena_supervisor(session: requests.Session) -> Mapping:
+def _query_balena_supervisor(session: requests.Session, url=None, params=None) -> Mapping:
     headers = {"Content-Type":"application/json"}
     params={"apikey": BALENA_SUPERVISOR_API_KEY}
 
-    url = f"{BALENA_SUPERVISOR_ADDRESS}/v1/device"
     result = session.get(url=url, headers=headers, params=params)
     data = result.json()
     return data
+
+def get_device_info(session):
+    try:
+        result = _query_balena_supervisor(
+            session=session,
+            url = f"{BALENA_SUPERVISOR_ADDRESS}/v1/device",
+        )
+    except requests.JSONDecodeError as ex:
+        raise ex
+    else:
+        return result
+
+def get_device_name(session):
+    try:
+        result = _query_balena_supervisor(
+            session=session,
+            url = f"{BALENA_SUPERVISOR_ADDRESS}/v2/device/name",
+        )
+    except requests.JSONDecodeError as ex:
+        raise ex
+    else:
+        return result.get("deviceName")
+
+
+def change_hostname(session, new_hostname):
+    headers = {"Content-Type":"application/json"}
+    params={"apikey": BALENA_SUPERVISOR_API_KEY}
+
+    url = f"{BALENA_SUPERVISOR_ADDRESS}/v1/device/host-config"
+
+    data = {
+        "network": {
+            "hostname": new_hostname
+        }
+    }
+
+    result = requests.patch(url=url, headers=headers, params=params, json=data)
+    return result
+
 
 def main():
 
@@ -55,40 +93,36 @@ def main():
 
     sess = requests.session()
 
+
     # get curses window after initializing tty
     stdscr = curses.initscr()
+    stdscr.clear()
 
     # Main update loop
     while True:
-        sd = _query_balena_supervisor(session=sess)
+        device_info = get_device_info(session=sess)
 
         # Clear screen
         # stdscr.clear()
         stdscr.erase()
 
         device_uuid=os.environ.get("BALENA_DEVICE_UUID")
-        hostname = os.environ.get("HOSTNAME")
         device_name_at_init=os.environ.get("RESIN_DEVICE_NAME_AT_INIT")
-        stdscr.addstr(f"Device UUID: {device_uuid} has Hostname: {hostname} and device name: {device_name_at_init}\n")
+        hostname = os.environ.get("HOSTNAME")
+        device_name_current = get_device_name(session=sess)
+
+        stdscr.addstr(f"Device UUID: {device_uuid} has Hostname: {hostname}\n")
+        stdscr.addstr(f"Current Device name is: {device_name_current} and was originally: {device_name_at_init}\n")
 
         # update buffer
-        ip_address = sd.get("ip_address")
-        stdscr.addstr(f"Local IP address: {ip_address}]\n")
+        ip_address = device_info.get("ip_address")
+        stdscr.addstr(f"Local IP address: {ip_address}\n")
 
-        mac_address = sd.get("mac_address")
-        stdscr.addstr(f"Local MAC address: {mac_address}]\n")
+        mac_address = device_info.get("mac_address")
+        stdscr.addstr(f"Local MAC address: {mac_address}\n")
 
-        d_status = sd.get("status")
+        d_status = device_info.get("status")
         stdscr.addstr(f"Device Status: {d_status}\n")
-
-
-        # for k,v in os.environ.items():
-        #     string = f"{k}:{v}\n"
-        #     if not string.startswith("BALENA_"):
-        #         stdscr.addstr(f"Env Vars: {string}")
-
-
-
 
         # refresh screen to display buffer
         stdscr.refresh()
