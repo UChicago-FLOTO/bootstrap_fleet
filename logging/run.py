@@ -1,3 +1,4 @@
+import csv
 import curses
 import json
 import logging
@@ -16,6 +17,12 @@ OUTPUT_TTY = "tty0"
 TTY_SERVICE = f"getty@{OUTPUT_TTY}.service"
 TTY_DEVICE = f"/dev/{OUTPUT_TTY}"
 
+# ensure we write to correct TTY
+with open(TTY_DEVICE, "rb") as inf, open(TTY_DEVICE, "wb") as outf:
+    os.dup2(inf.fileno(), 0)
+    os.dup2(outf.fileno(), 1)
+    os.dup2(outf.fileno(), 2)
+
 
 # If "replace" the call will start the unit and its dependencies,
 # possibly replacing already queued jobs that conflict with this.
@@ -23,6 +30,8 @@ SYSTEMD_API_MODE = "replace"
 
 BALENA_SUPERVISOR_ADDRESS = os.environ.get("BALENA_SUPERVISOR_ADDRESS")
 BALENA_SUPERVISOR_API_KEY = os.environ.get("BALENA_SUPERVISOR_API_KEY")
+
+LABELS_PATH = "/mnt/external/floto_labels.csv"
 
 
 def _query_balena_supervisor(
@@ -72,6 +81,29 @@ def change_hostname(session, new_hostname):
     return result
 
 
+def get_labels_from_csv(filename):
+    """
+    Loads csv file
+
+    Returns: (dict of populated labels by uuid, list of empty labels)
+    """
+
+    used_labels_dict = {}
+    free_labels_list = []
+
+    with open(filename) as csvfile:
+        label_reader = csv.DictReader(csvfile)
+        for item in label_reader:
+            tmp = item.copy()
+            uuid = tmp.pop("uuid")
+            if uuid:
+                used_labels_dict[uuid] = tmp
+            else:
+                free_labels_list.append(item)
+
+        return (used_labels_dict, free_labels_list)
+
+
 def main():
     # initialize systemd services to print to print tty0 to screen
     bus = SystemBus()
@@ -95,10 +127,16 @@ def main():
     device_name_at_init = os.environ.get("RESIN_DEVICE_NAME_AT_INIT")
     hostname = os.environ.get("HOSTNAME")
 
-    # Main update loop
-    t = time.process_time()
-    # do some stuff
-    elapsed_time = time.process_time() - t
+    # load labels
+    used_labels_dict, free_labels_list = get_labels_from_csv(LABELS_PATH)
+
+    match = used_labels_dict.get(device_uuid, None)
+    if match:
+        device_label = match
+    else:
+        device_label = free_labels_list[0]
+
+    # TODO write chosen label
 
     loop_time = 0
 
@@ -123,6 +161,8 @@ def main():
         stdscr.addstr(f"Local MAC address: {mac_address}\n")
         stdscr.addstr(f"Supervisor Status: {d_status}\n")
 
+        stdscr.addstr(f"Label xevice with {device_label}\n")
+
         current_loop_time = time.perf_counter()
         loop_duration = current_loop_time - loop_time
         fps = int(1 / loop_duration)
@@ -135,9 +175,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # ensure we write to correct TTY
-    with open(TTY_DEVICE, "rb") as inf, open(TTY_DEVICE, "wb") as outf:
-        os.dup2(inf.fileno(), 0)
-        os.dup2(outf.fileno(), 1)
-        os.dup2(outf.fileno(), 2)
-        main()
+    main()

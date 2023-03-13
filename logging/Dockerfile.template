@@ -6,6 +6,9 @@ RUN install_packages \
     py3-pydbus \
     py3-requests
 
+
+COPY entrypoint.sh /app/
 COPY run.py /app/
 
-CMD ["python3", "run.py"]
+ENTRYPOINT [ "/bin/bash" ]
+CMD ["entrypoint.sh"]
