@@ -1,7 +1,11 @@
 FROM balenalib/%%BALENA_MACHINE_NAME%%-alpine:latest-run
 WORKDIR /app
-COPY . .
 
-RUN install_packages jq
+RUN install_packages \
+    py3-gobject3 \
+    py3-pydbus \
+    py3-requests
 
-CMD ["/bin/bash", "run.sh"]
+COPY run.py /app/
+
+CMD ["python3", "run.py"]
