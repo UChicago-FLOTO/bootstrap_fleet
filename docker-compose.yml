@@ -1,5 +1,5 @@
 version: '2'
-volumes: 
+volumes:
   dashboard-data:
   speedtest-data:
 services:
