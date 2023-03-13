@@ -1,0 +1,6 @@
+# python
+.venv
+
+# balena
+balenarc.yml
+.data
