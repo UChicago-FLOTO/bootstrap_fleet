@@ -1,6 +1,5 @@
 import csv
 import curses
-import json
 import logging
 import os
 import time
@@ -88,20 +87,14 @@ def get_labels_from_csv(filename):
     Returns: (dict of populated labels by uuid, list of empty labels)
     """
 
-    used_labels_dict = {}
-    free_labels_list = []
+    labels_list = []
 
     with open(filename) as csvfile:
         label_reader = csv.DictReader(csvfile)
         for item in label_reader:
-            tmp = item.copy()
-            uuid = tmp.pop("uuid")
-            if uuid:
-                used_labels_dict[uuid] = tmp
-            else:
-                free_labels_list.append(item)
+            labels_list.append(item)
 
-        return (used_labels_dict, free_labels_list)
+        return labels_list
 
 
 def main():
@@ -127,51 +120,60 @@ def main():
     device_name_at_init = os.environ.get("RESIN_DEVICE_NAME_AT_INIT")
     hostname = os.environ.get("HOSTNAME")
 
+    device_info = get_device_info(session=sess)
+    mac_address = device_info.get("mac_address")
+
     # load labels
-    used_labels_dict, free_labels_list = get_labels_from_csv(LABELS_PATH)
+    labels_list = get_labels_from_csv(LABELS_PATH)
+    device_label = {}
+    found_label = False
+    wrote_label = False
 
-    match = used_labels_dict.get(device_uuid, None)
-    if match:
-        device_label = match
-    else:
-        device_label = free_labels_list[0]
+    # search for match in list
+    for label in labels_list:
+        if label.get("uuid") == device_uuid:
+            device_label = label
+            found_label = True
+            break
 
+    if not device_label:
+        # if no match found, search for first unused label
+        for idx, label in enumerate(labels_list):
+            if not label.get("uuid"):
+                device_label = label
+                break
+
+    device_label["mac_addr_list"] = mac_address
+    device_label["uuid"] = device_uuid
     # TODO write chosen label
-
-    loop_time = 0
+    # write_new_label(device_label)
 
     while True:
         # gather updated information by calling supervisor API
         device_info = get_device_info(session=sess)
-        device_name_current = get_device_name(session=sess)
 
         ip_address = device_info.get("ip_address")
         mac_address = device_info.get("mac_address")
-        d_status = device_info.get("status")
 
         # Clear screen using erase to avoid flickering
-        stdscr.erase()
+        stdscr.clear()
+        ##################################################################
 
         # create formatted strings, send to buffer
-        stdscr.addstr(f"Device UUID: {device_uuid} has Hostname: {hostname}\n")
-        stdscr.addstr(
-            f"Current Device name is: {device_name_current} and was originally: {device_name_at_init}\n"
-        )
-        stdscr.addstr(f"Local IP address: {ip_address}\n")
+        stdscr.addstr(f"Device UUID: {device_uuid}\n")
         stdscr.addstr(f"Local MAC address: {mac_address}\n")
-        stdscr.addstr(f"Supervisor Status: {d_status}\n")
-
-        stdscr.addstr(f"Label xevice with {device_label}\n")
-
-        current_loop_time = time.perf_counter()
-        loop_duration = current_loop_time - loop_time
-        fps = int(1 / loop_duration)
-
-        loop_time = current_loop_time
-        stdscr.addstr(f"Updating at {fps} FPS\n")
+        stdscr.addstr(f"Local IP address: {ip_address}\n")
+        label_name = device_label.get("label")
+        if found_label:
+            stdscr.addstr(f"Found Label in List! \n Label device with {label_name}\n")
+        else:
+            stdscr.addstr(
+                f"Picked first free Label! \n Label device with {label_name}\n"
+            )
 
         # refresh screen to display buffer
         stdscr.refresh()
+        time.sleep(5)
 
 
 if __name__ == "__main__":
