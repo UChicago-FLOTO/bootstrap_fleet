@@ -2,6 +2,8 @@ import csv
 import curses
 import logging
 import os
+import re
+import subprocess
 import sys
 import time
 from collections.abc import Mapping
@@ -106,6 +108,44 @@ def read_and_update_labels_csv(filename, uuid, mac_address_list):
     return match
 
 
+def find_usb_drive_path():
+    cmd = ["blkid"]
+    result = subprocess.run(cmd, check=True, capture_output=True)
+    blkid_output = result.stdout.decode()
+
+    try:
+        matching_device = re.search("(/dev/sd.*):", blkid_output).group(1)
+    except AttributeError:
+        return None
+    else:
+        return matching_device
+
+
+def mount_usb_drive(usb_path):
+    mkdir_cmd = ["mkdir", "-p", "/mnt/external"]
+    mkdir_result = subprocess.run(mkdir_cmd, check=True)
+
+    with open("/etc/mtab", "r") as mtab:
+        mtab_data = "\n".join(mtab.readlines())
+        mnt_in_mtab = re.match("(/mnt/external)", mtab_data)
+        usb_in_mtab = re.match(f"({usb_path})", mtab_data)
+
+        if mnt_in_mtab and usb_in_mtab:
+            return usb_path
+        elif mnt_in_mtab and not usb_in_mtab:
+            cmd = ["umount", "/mnt/external"]
+            subprocess.run(cmd, check=True)
+
+        if usb_path:
+            cmd = ["mount", usb_path, "/mnt/external"]
+            try:
+                result = subprocess.run(cmd, check=True, capture_output=True)
+            except subprocess.CalledProcessError as ex:
+                return ex.stderr.decode()
+            else:
+                return result.stdout.decode()
+
+
 def main():
     # initialize systemd services to print to print tty0 to screen
     bus = SystemBus()
@@ -134,7 +174,17 @@ def main():
         ip_address = device_info.get("ip_address")
         mac_address_list = device_info.get("mac_address")
 
-        # run inside loop to handle hotplug case
+        usb_path = find_usb_drive_path()
+        if not usb_path:
+            stdscr.addstr(f"USB drive not found, restarting container\n")
+            stdscr.refresh()
+            sys.exit(1)
+        else:
+            stdscr.addstr(f"discovered drive: {usb_path}\n")
+
+        mount_status = mount_usb_drive(usb_path)
+        stdscr.addstr(f"mount status: {mount_status}\n")
+
         try:
             device_label = read_and_update_labels_csv(
                 filename=LABELS_PATH,
@@ -145,6 +195,9 @@ def main():
             stdscr.addstr(
                 f"Labels file not found! Please insert usb with 'floto_labels.csv'\n"
             )
+            stdscr.refresh()
+            time.sleep(1)
+            stdscr.clear()
             continue
 
         # Clear screen using erase to avoid flickering
