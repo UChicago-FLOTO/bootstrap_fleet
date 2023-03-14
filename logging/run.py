@@ -31,6 +31,11 @@ BALENA_SUPERVISOR_ADDRESS = os.environ.get("BALENA_SUPERVISOR_ADDRESS")
 BALENA_SUPERVISOR_API_KEY = os.environ.get("BALENA_SUPERVISOR_API_KEY")
 
 LABELS_PATH = "/mnt/external/floto_labels.csv"
+LABEL_HEADERS = [
+    "labelname",
+    "uuid",
+    "mac_addr_list",
+]
 
 
 def _query_balena_supervisor(
@@ -68,33 +73,36 @@ def get_device_name(session):
         return result.get("deviceName")
 
 
-def change_hostname(session, new_hostname):
-    headers = {"Content-Type": "application/json"}
-    params = {"apikey": BALENA_SUPERVISOR_API_KEY}
+def read_and_update_labels_csv(filename, uuid, mac_address_list):
+    data = []
+    match = {}
+    updated = False
 
-    url = f"{BALENA_SUPERVISOR_ADDRESS}/v1/device/host-config"
+    with open(filename, "r") as f:
+        reader = csv.DictReader(f, fieldnames=LABEL_HEADERS)
+        data.extend(reader)
 
-    data = {"network": {"hostname": new_hostname}}
+    for idx, row in enumerate(data):
+        if row.get("uuid") == uuid:
+            match = row
+            print(f"found match at row {idx}")
+            return match
+    else:
+        print(f"match not found, picking first free label")
 
-    result = requests.patch(url=url, headers=headers, params=params, json=data)
-    return result
+    # don't assume csv is sorted, pick first free if no match
+    for row in data:
+        if not row.get("uuid"):
+            row["uuid"] = uuid
+            row["mac_addr_list"] = mac_address_list
+            match = row
+            break
+    # write file since we updated it
+    with open(filename, "w") as f:
+        writer = csv.DictWriter(f, fieldnames=LABEL_HEADERS)
+        writer.writerows(data)
 
-
-def get_labels_from_csv(filename):
-    """
-    Loads csv file
-
-    Returns: (dict of populated labels by uuid, list of empty labels)
-    """
-
-    labels_list = []
-
-    with open(filename) as csvfile:
-        label_reader = csv.DictReader(csvfile)
-        for item in label_reader:
-            labels_list.append(item)
-
-        return labels_list
+    return match
 
 
 def main():
@@ -121,32 +129,13 @@ def main():
     hostname = os.environ.get("HOSTNAME")
 
     device_info = get_device_info(session=sess)
-    mac_address = device_info.get("mac_address")
+    mac_address_list = device_info.get("mac_address")
 
-    # load labels
-    labels_list = get_labels_from_csv(LABELS_PATH)
-    device_label = {}
-    found_label = False
-    wrote_label = False
-
-    # search for match in list
-    for label in labels_list:
-        if label.get("uuid") == device_uuid:
-            device_label = label
-            found_label = True
-            break
-
-    if not device_label:
-        # if no match found, search for first unused label
-        for idx, label in enumerate(labels_list):
-            if not label.get("uuid"):
-                device_label = label
-                break
-
-    device_label["mac_addr_list"] = mac_address
-    device_label["uuid"] = device_uuid
-    # TODO write chosen label
-    # write_new_label(device_label)
+    device_label = read_and_update_labels_csv(
+        filename=LABELS_PATH,
+        uuid=device_uuid,
+        mac_address_list=mac_address_list,
+    )
 
     while True:
         # gather updated information by calling supervisor API
