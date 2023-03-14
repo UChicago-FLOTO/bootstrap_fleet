@@ -2,6 +2,7 @@ import csv
 import curses
 import logging
 import os
+import sys
 import time
 from collections.abc import Mapping
 
@@ -125,40 +126,38 @@ def main():
 
     # query environment varibles. These shoudldn't change after the container is started
     device_uuid = os.environ.get("BALENA_DEVICE_UUID")
-    device_name_at_init = os.environ.get("RESIN_DEVICE_NAME_AT_INIT")
-    hostname = os.environ.get("HOSTNAME")
-
-    device_info = get_device_info(session=sess)
-    mac_address_list = device_info.get("mac_address")
-
-    device_label = read_and_update_labels_csv(
-        filename=LABELS_PATH,
-        uuid=device_uuid,
-        mac_address_list=mac_address_list,
-    )
 
     while True:
         # gather updated information by calling supervisor API
         device_info = get_device_info(session=sess)
 
         ip_address = device_info.get("ip_address")
-        mac_address = device_info.get("mac_address")
+        mac_address_list = device_info.get("mac_address")
+
+        # run inside loop to handle hotplug case
+        try:
+            device_label = read_and_update_labels_csv(
+                filename=LABELS_PATH,
+                uuid=device_uuid,
+                mac_address_list=mac_address_list,
+            )
+        except FileNotFoundError:
+            stdscr.addstr(
+                f"Labels file not found! Please insert usb with 'floto_labels.csv'\n"
+            )
+            continue
 
         # Clear screen using erase to avoid flickering
         stdscr.clear()
         ##################################################################
 
         # create formatted strings, send to buffer
-        stdscr.addstr(f"Device UUID: {device_uuid}\n")
-        stdscr.addstr(f"Local MAC address: {mac_address}\n")
-        stdscr.addstr(f"Local IP address: {ip_address}\n")
-        label_name = device_label.get("label")
-        if found_label:
-            stdscr.addstr(f"Found Label in List! \n Label device with {label_name}\n")
-        else:
-            stdscr.addstr(
-                f"Picked first free Label! \n Label device with {label_name}\n"
-            )
+        stdscr.addstr(f"Saved identifiers: \n")
+        for k, v in device_label.items():
+            stdscr.addstr(f"\t {k}: {v}\n")
+
+        label_name = device_label.get("labelname")
+        stdscr.addstr(f"\nLabel device with {label_name}\n")
 
         # refresh screen to display buffer
         stdscr.refresh()
